@@ -3,10 +3,11 @@ import random
 import numpy as np
 import tifffile as tiff
 import matplotlib.pyplot as plt
-
+import denoise_frames
 from scipy.signal import correlate
 from skimage.registration import phase_cross_correlation
 from scipy.ndimage import shift
+import time
 
 ############################################################
 # 1) Read TIFF Pages
@@ -83,7 +84,7 @@ def apply_line_offset_odd_only_2d(img2d, offset):
 ############################################################
 def save_channel_stack_as_tiff(filename, slice_list):
     """Save a list of 2D slices as a multi-page TIFF file."""
-    stack = [np.clip(slc, 0, 65535).astype(np.uint16) for slc in slice_list]
+    stack = [np.clip(slc, -32768, 32767).astype(np.int16) for slc in slice_list]
     stack = np.stack(stack, axis=0)
 
     tiff.imwrite(filename, stack[0], photometric='minisblack')
@@ -93,10 +94,10 @@ def save_channel_stack_as_tiff(filename, slice_list):
 ############################################################
 # 6) Main Registration Function
 ############################################################
-def zref_mid_frame_register(fileID, animalID, ref_name, plane_spacing, ch, ch_active, fast_z_slices,
-                            fast_z_step, tiff_dir, fast_z_slice):
+def zref_mid_frame_register(fileID, ref_name, ch, ch_active, fast_z_slices,
+                            fast_z_step, tiff_dir, fast_z_slice,denoise_config=None):
     """Process and register frames from multiple microscopy TIFF files, ensuring depth-to-depth alignment."""
-    
+    start_time = time.time()
     print("\n=== Starting Registration ===\n")
     stack_filename_stem = fileID
     exp_dir_temp = tiff_dir
@@ -122,6 +123,21 @@ def zref_mid_frame_register(fileID, animalID, ref_name, plane_spacing, ch, ch_ac
         sub_ref = ref_stack[:, :, :max(1, int(0.2 * ref_stack.shape[2]))]
         sub_avg = np.mean(rapid_reg_non_par(sub_ref, sub_ref[:, :, 0]), axis=2)
         ref_stack_reg = rapid_reg_non_par(ref_stack, sub_avg)
+
+        # optional denoising if denoise_config is provided
+        if denoise_config is not None:
+            print("Denoising...") 
+
+            nps_list = []
+            nps_list.append(np.transpose(ref_stack_reg,(2,0,1)))
+
+            nps_list_denoised = denoise_frames.denoise_np(
+                nps_list,
+                denoise_config
+            )             
+            print("Denoising complete.")
+            ref_stack_reg = np.transpose(nps_list_denoised[0],(1,2,0))
+
         avg_ref_slice = np.mean(ref_stack_reg, axis=2)
 
         offset_odd_even = calc_odd_even_line_offset_median(avg_ref_slice, num_lines=200)
@@ -161,10 +177,13 @@ def zref_mid_frame_register(fileID, animalID, ref_name, plane_spacing, ch, ch_ac
     ##################################################
     print("\n--- Saving Output TIFFs ---\n")
     for c_idx in range(ch_active):
-        save_channel_stack_as_tiff(os.path.join(tiff_dir, f"{ref_name}{stack_filename_stem}_ch{c_idx}.tif"),
+        save_channel_stack_as_tiff(os.path.join(tiff_dir, f"{ref_name}_{stack_filename_stem}_ch{c_idx}.tif"),
                                    final_slices[c_idx])
 
     print("\n=== Processing Complete ===\n")
+    run_time = time.time() - start_time
+    print(f"Total time taken: {run_time:.2f} seconds")
+    print(f"Time per depth {run_time/len(image_files):.2f} seconds")
 
 
 ############################################################
@@ -173,15 +192,25 @@ def zref_mid_frame_register(fileID, animalID, ref_name, plane_spacing, ch, ch_ac
 
 if __name__ == "__main__":
     # Example usage with the new param 'fast_z_slice'
+    denoise_config = {
+            "denoise_model": "multiplane_9_202412201343", # should be a model matched to data being denoised
+            "gpus": "0,1", # machine specific (will just be one gpu on most computers)
+            "temp_folder": "/home/adamranson/data/Temp/denoise_temp", # a temporary folder used by denoiser - should be accessible by the user
+            "patch_x": 160,
+            "patch_t": 160, # can potentially speed up by reducing this but must match model in denoise_model
+            "pth_path": "/home/adamranson/data/srt_models", # where denoise model is stored
+            "srdtrans_launcher": "/home/adamranson/code/SRDTrans/test.py", # where SRDTrans repo is stored
+            "denoise_env": "srdtrans" # environment should be established on the user's machine (install srdtrans)
+        }  
+
     zref_mid_frame_register(
-        fileID="z_ref_29-Jan-2025 10_02_30",        # File identifier
-        animalID="animalID",    # Animal identifier (not used in path anymore)
+        fileID="z_ref_29-Jan-2025 10_02_30", # File identifier
         ref_name="ref_name",    # Reference name
-        plane_spacing=10,        # Spacing between planes
-        ch=0,                    # Reference channel (0-based)
+        ch=0,                   # Reference channel (0-based)
         ch_active=2,            # Total channels
         fast_z_slices=5,        # Number of z-slices in raw data
         fast_z_step=50,         # Step size between z-slices (metadata only)
-        tiff_dir="C:\\Temp\\data\\29-Jan-2025 10_02_30_subset",     # Path to TIFF folder
-        fast_z_slice=2          # Depth index to extract (0-based)
+        tiff_dir="/home/adamranson/data/Temp/sloped_z_test_subset",     # Path to TIFF folder
+        fast_z_slice=2,          # Depth index to extract (0-based)
+        denoise_config=None    # Whether to to run SRD denoising on frames
     )
