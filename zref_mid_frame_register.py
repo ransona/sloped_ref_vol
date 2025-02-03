@@ -95,7 +95,7 @@ def save_channel_stack_as_tiff(filename, slice_list):
 # 6) Main Registration Function
 ############################################################
 def zref_mid_frame_register(fileID, ref_name, ch, ch_active, fast_z_slices,
-                            fast_z_step, tiff_dir, fast_z_slice,denoise_config=None):
+                            fast_z_step, tiff_dir,tiff_dir_out, fast_z_slice,denoise_config=None):
     """Process and register frames from multiple microscopy TIFF files, ensuring depth-to-depth alignment."""
     start_time = time.time()
     print("\n=== Starting Registration ===\n")
@@ -155,7 +155,7 @@ def zref_mid_frame_register(fileID, ref_name, ch, ch_active, fast_z_slices,
             final_slices[c_idx].append(corrected_c)
 
     ##################################################
-    # STEP 2: Inter-depth Registration (Fixed)
+    # STEP 2: Inter-depth Registration
     ##################################################
     print("\n--- Performing Depth-to-Depth Registration (Mid-Out) ---\n")
 
@@ -173,11 +173,11 @@ def zref_mid_frame_register(fileID, ref_name, ch, ch_active, fast_z_slices,
             final_slices[c_idx][i] = shift(final_slices[c_idx][i], shifts[i])
 
     ##################################################
-    # STEP 3: Saving TIFFs (RESTORED)
+    # STEP 3: Saving TIFFs 
     ##################################################
     print("\n--- Saving Output TIFFs ---\n")
     for c_idx in range(ch_active):
-        save_channel_stack_as_tiff(os.path.join(tiff_dir, f"{ref_name}_{stack_filename_stem}_ch{c_idx}.tif"),
+        save_channel_stack_as_tiff(os.path.join(tiff_dir_out, f"{ref_name}_{stack_filename_stem}_ch{c_idx}.tif"),
                                    final_slices[c_idx])
 
     print("\n=== Processing Complete ===\n")
@@ -210,7 +210,8 @@ if __name__ == "__main__":
         ch_active=2,            # Total channels
         fast_z_slices=5,        # Number of z-slices in raw data
         fast_z_step=50,         # Step size between z-slices (metadata only)
-        tiff_dir="/home/adamranson/data/Temp/sloped_z_test_subset",     # Path to TIFF folder
+        tiff_dir="/home/adamranson/data/Temp/sloped_z_test_subset",     # Tif raw 
+        tiff_dir_out="/home/adamranson/data/Temp/sloped_z_test_subset", # Tif out
         fast_z_slice=2,          # Depth index to extract (0-based)
         denoise_config=None    # Whether to to run SRD denoising on frames
     )
